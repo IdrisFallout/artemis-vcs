@@ -35,7 +35,7 @@ jobs:
       - name: Install Inno Setup
         if: runner.os == 'Windows'
         run: |
-          choco install innosetup
+          choco install innosetup -y
 
       - name: Build Windows Installer with Inno Setup
         if: runner.os == 'Windows'
