@@ -2,8 +2,13 @@ name: Release Setup EXE
 
 on:
   push:
-    tags:
-      - 'v*'  # Trigger release on version tag push
+    branches:
+      - master
+      - main
+    # Trigger only when the commit message contains 'done'
+    # This filter is evaluated after the push event is triggered
+    # so it will only run the jobs if the commit message matches
+    if: contains(github.event.head_commit.message, 'done')
 
 jobs:
   release:
@@ -23,13 +28,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Build Setup EXE
+      - name: Install Inno Setup
         run: |
-          python setup.py bdist_wininst
+          choco install innosetup
+
+      - name: Build Setup EXE using Inno Setup
+        run: |
+          inno-compiler artemis_installer.iss  # Path to your .iss file in the repo root
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v1
         with:
-          files: "dist/*.exe"  # Ensure the correct file pattern for your EXE
+          files: "output/artemis_installer.exe"  # Adjust the path to your output installer
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}  # Use your custom token
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}  # Use your custom token for release access
