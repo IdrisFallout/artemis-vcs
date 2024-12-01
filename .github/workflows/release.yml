@@ -35,12 +35,12 @@ jobs:
       - name: Install Inno Setup
         if: runner.os == 'Windows'
         run: |
-          choco install innosetup -y
+          choco install innosetup -y || echo "Inno Setup is already installed"
 
       - name: Build Windows Installer with Inno Setup
         if: runner.os == 'Windows'
         run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" artemis_installer.iss
+          Start-Process -FilePath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -ArgumentList "artemis_installer.iss" -Wait -NoNewWindow
 
       - name: Build AppImage for Linux
         if: runner.os == 'Linux'
