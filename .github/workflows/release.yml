@@ -5,9 +5,6 @@ on:
     branches:
       - master
       - main
-    # Trigger only when the commit message contains 'done'
-    # This filter is evaluated after the push event is triggered
-    # so it will only run the jobs if the commit message matches
     if: contains(github.event.head_commit.message, 'done')
 
 jobs:
@@ -30,11 +27,13 @@ jobs:
 
       - name: Install Inno Setup
         run: |
-          choco install innosetup
+          choco install innosetup -y  # Ensure Inno Setup is installed
 
       - name: Build Setup EXE using Inno Setup
         run: |
-          inno-compiler artemis_installer.iss  # Path to your .iss file in the repo root
+          # Ensure Inno Setup is on the PATH and run inno-compiler
+          $inno_path = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"  # Default path to ISCC compiler
+          & $inno_path "artemis_installer.iss"  # Path to your .iss file in the repo root
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v1
