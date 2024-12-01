@@ -4,49 +4,68 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 jobs:
   release:
-    runs-on: ubuntu-latest  # Use Ubuntu for both Linux and Windows builds
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install pyinstaller
           pip install -r requirements.txt
 
-      - name: Build EXE for Windows with PyInstaller
+      - name: Build EXE for Windows
+        if: runner.os == 'Windows'
         run: |
-          pyinstaller --onefile --name artemis artemis/main.py  # Create the .exe file
+          pyinstaller --onefile --windowed --name artemis artemis/main.py
 
       - name: Build AppImage for Linux
+        if: runner.os == 'Linux'
         run: |
-          # Build the Linux version using PyInstaller
-          pyinstaller --onefile --name artemis-linux artemis/main.py  # Create the Linux binary
-          mv dist/artemis-linux dist/artemis-linux.AppImage  # Optionally rename to .AppImage for Linux distribution
+          pyinstaller --onefile --name artemis-linux artemis/main.py
+          mv dist/artemis-linux dist/artemis-linux.AppImage
 
-      - name: Build Setup EXE for Windows using Inno Setup
-        if: runner.os == 'Windows'  # Run this only on Windows runner
-        run: |
-          choco install innosetup -y  # Ensure Inno Setup is installed
-          # Ensure Inno Setup is on the PATH and run ISCC compiler
-          $inno_path = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"  # Path to ISCC compiler
-          & $inno_path "artemis_installer.iss"  # Path to your .iss file in the repo root
+      - name: Build Windows Installer with Inno Setup
+        if: runner.os == 'Windows'
+        uses: Minionguide/inno-setup-action@v1
+        with:
+          path: artemis_installer.iss
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v1
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-builds
+          path: |
+            dist/artemis.exe
+            dist/artemis-linux.AppImage
+            Output/*.exe
+
+  release-github:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/artemis.exe  # Path to the generated Windows installer
-            dist/artemis-linux.AppImage  # Path to the generated Linux AppImage
+            windows-builds/artemis.exe
+            linux-builds/artemis-linux.AppImage
+            windows-builds/Output/*.exe
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}  # Use your custom token for release access
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
