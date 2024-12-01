@@ -1,4 +1,4 @@
-name: Build and Release
+name: Release Setup EXE
 
 on:
   push:
@@ -6,122 +6,40 @@ on:
       - 'v*'
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            python-version: '3.12'
-            platform: win64
-          - os: ubuntu-latest
-            python-version: '3.12'
-            platform: linux
-
-    runs-on: ${{ matrix.os }}
+  release:
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
           pip install -r requirements.txt
 
-      - name: Build Windows Executable
-        if: matrix.os == 'windows-latest'
-        run: |
-          pyinstaller --onefile --windowed --name artemis-win64 artemis/main.py
-
       - name: Install Inno Setup
-        if: matrix.os == 'windows-latest'
-        uses: crazy-max/ghaction-chocolatey@v3
-        with:
-          args: install innosetup
-
-      - name: Create Windows Installer
-        if: matrix.os == 'windows-latest'
         run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" artemis_installer.iss
-        shell: cmd
+          choco install innosetup -y  # Ensure Inno Setup is installed
 
-      - name: Build Linux Executable
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build EXE with PyInstaller
         run: |
-          pyinstaller --onefile --name artemis-linux artemis/main.py
-          chmod +x dist/artemis-linux
+          pyinstaller --onefile --name artemis artemis/main.py  # Create the .exe file
 
-      - name: Build AppImage
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build Setup EXE using Inno Setup
         run: |
-          wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          mkdir -p artemis.AppDir/usr/bin
-          cp dist/artemis-linux artemis.AppDir/usr/bin/
-          cp artemis/icon.png artemis.AppDir/
-          cp artemis.desktop artemis.AppDir/
-          ./appimagetool-x86_64.AppImage artemis.AppDir artemis-${{ matrix.platform }}.AppImage
+          # Ensure Inno Setup is on the PATH and run ISCC compiler
+          $inno_path = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"  # Path to ISCC compiler
+          & $inno_path "artemis_installer.iss"  # Path to your .iss file in the repo root
 
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
         with:
-          name: ${{ matrix.platform }}-builds
-          path: |
-            dist/artemis-*
-            *.exe
-            *.AppImage
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: List Artifacts
-        run: ls -la artifacts
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/artemis-win64.exe
-            artifacts/artemis-linux
-            artifacts/artemis-*.AppImage
+          files: "output/artemis_installer.exe"  # Path to the generated installer
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-
-  # Optional: Generate SHA256 checksums
-  checksum:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Generate Checksums
-        run: |
-          cd artifacts
-          sha256sum artemis-win64.exe > artemis-win64.exe.sha256
-          sha256sum artemis-linux > artemis-linux.sha256
-          sha256sum artemis-*.AppImage > artemis-appimage.sha256
-
-      - name: Update Release with Checksums
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/*.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}  # Use your custom token for release access
