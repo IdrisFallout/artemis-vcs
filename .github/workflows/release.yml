@@ -4,10 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest  # Use Ubuntu for both Linux and Windows builds
 
     steps:
       - name: Checkout repository
@@ -23,16 +24,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Inno Setup
-        run: |
-          choco install innosetup -y  # Ensure Inno Setup is installed
-
-      - name: Build EXE with PyInstaller
+      - name: Build EXE for Windows with PyInstaller
         run: |
           pyinstaller --onefile --name artemis artemis/main.py  # Create the .exe file
 
-      - name: Build Setup EXE using Inno Setup
+      - name: Build AppImage for Linux
         run: |
+          # Build the Linux version using PyInstaller
+          pyinstaller --onefile --name artemis-linux artemis/main.py  # Create the Linux binary
+          mv dist/artemis-linux dist/artemis-linux.AppImage  # Optionally rename to .AppImage for Linux distribution
+
+      - name: Build Setup EXE for Windows using Inno Setup
+        if: runner.os == 'Windows'  # Run this only on Windows runner
+        run: |
+          choco install innosetup -y  # Ensure Inno Setup is installed
           # Ensure Inno Setup is on the PATH and run ISCC compiler
           $inno_path = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"  # Path to ISCC compiler
           & $inno_path "artemis_installer.iss"  # Path to your .iss file in the repo root
@@ -40,6 +45,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v1
         with:
-          files: "output/artemis_installer.exe"  # Path to the generated installer
+          files: |
+            dist/artemis.exe  # Path to the generated Windows installer
+            dist/artemis-linux.AppImage  # Path to the generated Linux AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}  # Use your custom token for release access
