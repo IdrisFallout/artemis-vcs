@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -32,40 +32,49 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --name artemis artemis/main.py
 
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        run: |
+          choco install innosetup
+
+      - name: Build Windows Installer with Inno Setup
+        if: runner.os == 'Windows'
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" artemis_installer.iss
+
       - name: Build AppImage for Linux
         if: runner.os == 'Linux'
         run: |
           pyinstaller --onefile --name artemis-linux artemis/main.py
           mv dist/artemis-linux dist/artemis-linux.AppImage
 
-      - name: Build Windows Installer with Inno Setup
-        if: runner.os == 'Windows'
-        uses: Minionguide/inno-setup-action@v1
-        with:
-          path: artemis_installer.iss
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}-builds
           path: |
-            dist/artemis.exe
-            dist/artemis-linux.AppImage
-            Output/*.exe
+            dist/*
+            *.exe
 
-  release-github:
-    needs: release
+  release:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -R artifacts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            windows-builds/artemis.exe
-            linux-builds/artemis-linux.AppImage
-            windows-builds/Output/*.exe
+            artifacts/artemis.exe
+            artifacts/artemis-linux.AppImage
+            artifacts/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
