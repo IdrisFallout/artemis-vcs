@@ -39,11 +39,17 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --name artemis-win64 artemis/main.py
 
+      - name: Install Inno Setup
+        if: matrix.os == 'windows-latest'
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install innosetup
+
       - name: Create Windows Installer
         if: matrix.os == 'windows-latest'
-        uses: Muki16/inno-setup-action@v1
-        with:
-          filepath: artemis_installer.iss
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" artemis_installer.iss
+        shell: cmd
 
       - name: Build Linux Executable
         if: matrix.os == 'ubuntu-latest'
@@ -92,7 +98,7 @@ jobs:
             artifacts/artemis-linux
             artifacts/artemis-*.AppImage
         env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
   # Optional: Generate SHA256 checksums
   checksum:
@@ -118,4 +124,4 @@ jobs:
           files: |
             artifacts/*.sha256
         env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
