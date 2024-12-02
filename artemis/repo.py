@@ -1,37 +1,66 @@
+import ctypes
 import os
-import json
+import platform
+
+from colorama import Fore, Style
 
 ARTEMIS_DIR = '.artemis'
+STAGING_AREA = os.path.join(ARTEMIS_DIR, 'staging_area')
+
+
+def set_hidden_windows(folder):
+    """Sets the hidden attribute on a folder for Windows."""
+    FILE_ATTRIBUTE_HIDDEN = 0x02
+    try:
+        # Set the hidden attribute on the folder
+        ctypes.windll.kernel32.SetFileAttributesW(folder, FILE_ATTRIBUTE_HIDDEN)
+    except Exception as e:
+        print(f"Failed to set hidden attribute on {folder}: {e}")
+
 
 def init():
     """
-    Initializes an Artemis repository by creating a .artemis directory
-    with necessary subdirectories and files.
+    Initializes a new repository by creating the .artemis directory and its substructure.
     """
+    subdirs = [
+        os.path.join(ARTEMIS_DIR, "objects"),
+        os.path.join(ARTEMIS_DIR, "refs"),
+        os.path.join(ARTEMIS_DIR, "refs/heads"),
+        os.path.join(ARTEMIS_DIR, "refs/tags"),
+        os.path.join(ARTEMIS_DIR, "staging_area")  # Ensure there's a staging area for staging files
+    ]
+    files = {
+        os.path.join(ARTEMIS_DIR, "HEAD"): "ref: refs/heads/main\n",
+        os.path.join(ARTEMIS_DIR, "config"): """
+[core]
+    repositoryformatversion = 0
+    filemode = true
+    bare = false
+""".strip(),
+        os.path.join(ARTEMIS_DIR, "description"): "Unnamed repository; edit this file to name the repository.\n"
+    }
+
     if os.path.exists(ARTEMIS_DIR):
-        print("Artemis repository already exists in this directory.")
+        print("Reinitialized existing repository in", os.path.abspath(ARTEMIS_DIR))
         return
 
-    # Create the .artemis structure
-    os.makedirs(f'{ARTEMIS_DIR}/objects')  # For storing file snapshots (blobs)
-    os.makedirs(f'{ARTEMIS_DIR}/refs/heads')  # For branches
-    os.makedirs(f'{ARTEMIS_DIR}/refs/tags')  # For tags (optional, for future)
+    try:
+        # Create subdirectories
+        for subdir in subdirs:
+            os.makedirs(subdir, exist_ok=True)
 
-    # Create essential files
-    with open(f'{ARTEMIS_DIR}/HEAD', 'w') as head_file:
-        head_file.write('ref: refs/heads/main')  # Default branch is "main"
+        # Create files in the repository
+        for file_path, content in files.items():
+            with open(file_path, "w") as file:
+                file.write(content)
 
-    with open(f'{ARTEMIS_DIR}/config', 'w') as config_file:
-        config = {
-            "core": {
-                "repositoryformatversion": 0,
-                "filemode": False,
-                "bare": False,
-            }
-        }
-        json.dump(config, config_file, indent=4)
+        # Initialize default branch files
+        with open(os.path.join(ARTEMIS_DIR, 'refs/heads/main'), 'w') as branch_file:
+            branch_file.write('')
 
-    print(f"Initialized empty Artemis repository in {ARTEMIS_DIR}/")
+        print("Initialized empty repository in", os.path.abspath(ARTEMIS_DIR))
+    except Exception as e:
+        print(f"Error initializing repository: {e}")
 
 
 def is_repo():
@@ -119,3 +148,87 @@ def create_branch(branch_name):
     with open(branch_path, 'w') as branch_file:
         branch_file.write(commit_hash)
     print(f"Created branch '{branch_name}'")
+
+
+def list_files_in_directory(directory):
+    """
+    Returns a list of files in a directory, excluding hidden files or directories.
+    """
+    file_list = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if not file.startswith('.'):  # Skip hidden files
+                file_list.append(os.path.relpath(os.path.join(root, file), directory))
+    return file_list
+
+def status():
+    """
+    Display the status of the repository, including staged, untracked, and committed files.
+    """
+    if not is_repo():
+        print(Fore.RED + "Error: Not an Artemis repository." + Style.RESET_ALL)
+        return
+
+    current_branch = get_head()
+    if current_branch is None:
+        print(Fore.RED + "Error: Unable to determine the current branch." + Style.RESET_ALL)
+        return
+
+    print(Fore.GREEN + f"On branch {current_branch}" + Style.RESET_ALL)
+
+    # Check for existing commits
+    branch_path = os.path.join(ARTEMIS_DIR, 'refs/heads', current_branch)
+    if not os.path.exists(branch_path):
+        print(Fore.YELLOW + "No commits yet." + Style.RESET_ALL)
+    else:
+        with open(branch_path, 'r') as branch_file:
+            commit_hash = branch_file.read().strip()
+        print(Fore.CYAN + f"Current commit: {commit_hash}" + Style.RESET_ALL)
+
+    # Detect staged and untracked files
+    tracked_dir = os.path.join(ARTEMIS_DIR, 'objects', current_branch)
+    if not os.path.exists(tracked_dir):
+        print(Fore.YELLOW + "No objects directory found for the current branch." + Style.RESET_ALL)
+
+    staged_files = set(os.listdir(STAGING_AREA))
+    working_dir_files = set(os.listdir('.')) - {ARTEMIS_DIR}
+
+    # Identify untracked and modified files
+    untracked_files = working_dir_files - staged_files
+    modified_files = staged_files & working_dir_files
+
+    # Handle the case where no files are tracked or staged
+    if not staged_files and not untracked_files:
+        print(Fore.GREEN + "\nNothing to commit (create/copy files and use 'artemis add' to track)." + Style.RESET_ALL)
+        return
+
+    # Report staged changes
+    if staged_files:
+        print("\nChanges to be committed:" + "\n  (use 'artemis rm --cached <file>...' to unstage)")
+        for file in sorted(staged_files):
+            file_path = os.path.join(STAGING_AREA, file)
+            # If it's a file, show it
+            if os.path.isfile(file_path):
+                print(Fore.GREEN + f"  {file}" + Style.RESET_ALL)
+            # If it's a directory, show files inside
+            elif os.path.isdir(file_path):
+                files_in_dir = list_files_in_directory(file_path)
+                for file_in_dir in files_in_dir:
+                    print(Fore.GREEN + f"  {file_in_dir}" + Style.RESET_ALL)
+    else:
+        print(Fore.GREEN + "\nNo changes staged for commit." + Style.RESET_ALL)
+
+    # Report untracked files
+    if untracked_files:
+        print("\nUntracked files:" + "\n  (use 'artemis add <file>...' to include in what will be committed)")
+        for file in sorted(untracked_files):
+            if os.path.isdir(file):
+                print(Fore.RED + f"  {file}/" + Style.RESET_ALL)  # Directory
+            else:
+                print(Fore.RED + f"  {file}" + Style.RESET_ALL)  # File
+    else:
+        print(Fore.GREEN + "\nNo untracked files." + Style.RESET_ALL)
+
+    # Final clean working tree message
+    if not untracked_files and not modified_files:
+        print(Fore.GREEN + "\nNothing to commit, working tree clean." + Style.RESET_ALL)
