@@ -59,6 +59,11 @@ def init_repository():
                 f.write("""# gitignore-style patterns go here
 """)
 
+            # Create current_branch file and set it to 'main'
+            current_branch_path = os.path.join(repo_dir, 'current_branch')
+            with open(current_branch_path, 'w') as f:
+                f.write('main')
+
             # Set permissions (replicating Git behavior)
             os.chmod(repo_dir, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
 
@@ -112,11 +117,13 @@ def status():
 
     excluded_files = read_exclude()
     staged_files = get_staged_files()  # Files that are staged for commit
-    # staged_files starts with ./, so we need to remove it
-    staged_files = [file[2:] for file in staged_files]
+    # Remove './' prefix from staged files and normalize path separators
+    staged_files = [file[2:].replace('\\', '/') for file in staged_files]
     untracked_files = get_untracked_files(staged_files, excluded_files)  # Untracked files
+    # Normalize untracked files path separators
+    untracked_files = [file.replace('\\', '/') for file in untracked_files]
 
-    # Get the current branch name (defaulting to 'master' if not found)
+    # Get the current branch name
     head_path = os.path.join(repo_dir, 'HEAD')
     branch_name = "master"  # Default branch name
     if os.path.exists(head_path):
@@ -126,56 +133,60 @@ def status():
                 branch_name = ref[len("ref: refs/heads/"):]
 
     # Display branch info
-    print(f"On branch {branch_name}\n")
+    print(f"On branch {branch_name}")
 
-    # Check if the repository is empty (no files at all except .artemis directory)
-    repo_empty = not any(os.scandir(os.getcwd()))  # Check if there are any files in the repo
-    repo_contains_only_artemis = not any(
-        entry.name != '.artemis' for entry in os.scandir(os.getcwd()) if entry.is_dir()
-    ) and not any(
-        file != '.artemis' for file in os.listdir(os.getcwd()) if os.path.isfile(file)
-    )
-
-    if repo_empty or repo_contains_only_artemis:
-        print("No commits yet")
-        print("nothing to commit (create/copy files and use \"artemis add\" to track)")
-
-    # Check if there are any commits made (by checking if the 'index' file exists and is not empty)
+    # Check if there are any commits
     index_path = os.path.join(repo_dir, 'index')
     if not os.path.exists(index_path) or os.stat(index_path).st_size == 0:
-        print("No commits yet")
+        print("\nNo commits yet")
 
     # Changes to be committed section
     if staged_files:
         print("\nChanges to be committed:")
         print('  (use "artemis rm --cached <file>..." to unstage)')
-        for file in staged_files:
+        for file in sorted(staged_files):
             print(Fore.GREEN + f"        new file:   {file}" + Style.RESET_ALL)
 
     # Untracked files section
+    # Filter out staged files from untracked files list
+    untracked_files = [file for file in untracked_files if file not in staged_files]
+
     if untracked_files:
-        print("\nUntracked files:")
-        print('  (use "artemis add <file>..." to include in what will be committed)')
+        # Separate untracked directories and files
+        untracked_dirs = set()
+        untracked_file_list = set()
 
-        # Filter out staged files from untracked files list
-        untracked_files = [file for file in untracked_files if file not in staged_files]
-
-        # Group untracked files by top-level directories
-        grouped_dirs = set()
         for file in untracked_files:
-            top_level_dir = file.split(os.sep)[0]
-            grouped_dirs.add(top_level_dir)
-
-        # Print untracked top-level directories and their files
-        for dir_name in grouped_dirs:
-            if os.path.isdir(dir_name):
-                print(Fore.RED + f"    {dir_name}/" + Style.RESET_ALL)
+            parts = file.split('/')
+            # If file is in a subdirectory and not a direct child of the root
+            if len(parts) > 1:
+                # Mark the entire directory as untracked if no files in this directory are staged
+                root_dir = parts[0]
+                if not any(staged_file.startswith(root_dir + '/') for staged_file in staged_files):
+                    untracked_dirs.add(root_dir)
+                else:
+                    # If the directory contains any staged files, list individual untracked files
+                    untracked_file_list.add(file)
             else:
-                print(Fore.RED + f"    {dir_name}" + Style.RESET_ALL)
+                # Root-level untracked files
+                untracked_file_list.add(file)
 
-    # Display the additional message about untracked files
+        # Print untracked section
+        if untracked_dirs or untracked_file_list:
+            print("\nUntracked files:")
+            print('  (use "artemis add <file>..." to include in what will be committed)')
+
+            # Print untracked directories first
+            for dir_name in sorted(untracked_dirs):
+                print(Fore.RED + f"        {dir_name}/" + Style.RESET_ALL)
+
+            # Then print individual untracked files
+            for file in sorted(untracked_file_list):
+                print(Fore.RED + f"        {file}" + Style.RESET_ALL)
+
+    # Additional messages
     if not staged_files and untracked_files:
         print("\nnothing added to commit but untracked files present (use \"artemis add\" to track)")
-
     elif staged_files and not untracked_files:
         print("\nnothing added to commit")
+
